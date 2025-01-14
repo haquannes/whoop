@@ -1,55 +1,136 @@
+"""
+Whoop Data Visualization App
+
+This Streamlit app visualizes physiological data from Whoop, including:
+- Sleep metrics
+- Recovery scores
+- Strain levels
+- Heart rate variability (HRV)
+
+The app supports both uploaded CSV files and a sample dataset for demonstration.
+"""
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import numpy as np
 from datetime import datetime
 import plotly.io as pio
+import os
+from pathlib import Path
 
-# Set dark theme as default for all plotly figures
+# Set dark theme as default for all plotly figures for better visibility
 pio.templates.default = "plotly_dark"
 
-# Set page config with dark theme
+# Configure the Streamlit page with dark theme and title
 st.set_page_config(page_title="Whoop Data Visualization", layout="wide")
 
-# Set dark theme for Streamlit
+# Apply custom CSS for dark theme styling
 st.markdown("""
     <style>
+        /* Dark theme colors for main app background */
         .stApp {
             background-color: #0E1117;
             color: #FAFAFA;
         }
+        /* Dark theme for expandable sections */
         .streamlit-expanderHeader {
             background-color: #262730;
             color: #FAFAFA;
         }
+        /* Dark theme for other components */
         .css-1d391kg {
             background-color: #262730;
         }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Whoop Data Visualization")
-
-# File upload
-uploaded_file = st.file_uploader("Upload your Whoop physiological cycles CSV file", type=['csv'])
-
-if uploaded_file is not None:
-    # Read the data
-    df = pd.read_csv(uploaded_file)
+def process_whoop_data(df):
+    """
+    Process Whoop data by converting time columns and setting up the index.
     
-    # Convert time columns to datetime
+    Args:
+        df (pandas.DataFrame): Raw Whoop data
+        
+    Returns:
+        pandas.DataFrame: Processed Whoop data
+    """
+    # Convert time columns to datetime format for proper time series analysis
     time_columns = ['Cycle start time', 'Cycle end time', 'Sleep onset', 'Wake onset']
     for col in time_columns:
-        df[col] = pd.to_datetime(df[col])
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col])
     
-    # Set the index to cycle start time for time series analysis
-    df.set_index('Cycle start time', inplace=True)
-    df.sort_index(inplace=True)
+    # Set the index to cycle start time for time-based operations
+    if 'Cycle start time' in df.columns:
+        df.set_index('Cycle start time', inplace=True)
+        df.sort_index(inplace=True)
     
-    # Get numerical columns only
+    return df
+
+@st.cache_data
+def load_sample_data():
+    """
+    Load and process the sample dataset from the same directory as the script.
+    Uses caching to prevent reloading the same data multiple times.
+    
+    Returns:
+        pandas.DataFrame or None: The processed sample data, or None if file not found
+    """
+    try:
+        # Get the directory containing this script using pathlib for cross-platform compatibility
+        script_dir = Path(__file__).parent
+        sample_file = script_dir / 'physiological_cycles.csv'
+        
+        if sample_file.exists():
+            # Load and process the sample data
+            df = pd.read_csv(sample_file)
+            return process_whoop_data(df)
+        return None
+    except Exception as e:
+        st.error(f"Error loading sample data: {str(e)}")
+        return None
+
+# Main app title
+st.title("Whoop Data Visualization")
+
+# Create a two-column layout for data input options
+col1, col2 = st.columns([2, 1])
+
+# Initialize session state variables to persist data across reruns
+if 'data_source' not in st.session_state:
+    st.session_state.data_source = None  # Tracks whether data comes from upload or sample
+if 'df' not in st.session_state:
+    st.session_state.df = None  # Stores the actual DataFrame
+
+with col1:
+    # File upload option in the left column
+    uploaded_file = st.file_uploader("Upload your Whoop physiological cycles CSV file", type=['csv'])
+    if uploaded_file is not None:
+        # Load and process the uploaded data
+        df = pd.read_csv(uploaded_file)
+        st.session_state.df = process_whoop_data(df)
+        st.session_state.data_source = 'upload'
+
+with col2:
+    # Sample data option in the right column
+    if st.button("Use Sample Data"):
+        sample_data = load_sample_data()
+        if sample_data is not None:
+            st.session_state.df = sample_data
+            st.session_state.data_source = 'sample'
+            st.success("Sample data loaded successfully!")
+        else:
+            st.error("Sample data file not found. Please upload your own data.")
+
+# Process and visualize data if available
+if st.session_state.df is not None:
+    df = st.session_state.df
+    
+    # Get numerical columns for analysis options
     numerical_cols = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
     
-    # Create a container for the controls
+    # Create a sidebar container for controls
     with st.sidebar:
         st.header("Controls")
         
@@ -270,9 +351,9 @@ if uploaded_file is not None:
                     title=f"Correlation Matrix (Smoothed over {smoothing_days} days)",
                     width=600,
                     height=600,
-                    plot_bgcolor='#1f2630',
-                    paper_bgcolor='#1f2630',
-                    font=dict(color='#ffffff')
+                    plot_bgcolor='#1f2630',  # Dark background
+                    paper_bgcolor='#1f2630',  # Dark background
+                    font=dict(color='#ffffff')  # White text
                 )
                 
                 # Update colorbar appearance
